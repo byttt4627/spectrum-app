@@ -2,6 +2,12 @@
 
 A Windows desktop tool for audio spectrogram visualization, image-to-audio synthesis, and audio-to-image conversion.
 
+## Quick Start
+
+1. **[Download `频谱图工具.exe`](频谱图工具.exe)** — double-click to run, no installation needed
+2. **Install ffmpeg** (required for MP3, FLAC, OGG, etc.) — [Download ffmpeg](https://ffmpeg.org/download.html), place `ffmpeg.exe` in `C:\ffmpeg\bin\` or add it to your `PATH`
+3. WAV files work without ffmpeg
+
 ## Features
 
 - **Audio → Spectrogram** — Load any audio file (MP3, FLAC, OGG, M4A, WAV, etc.) and view its spectrogram in real time
