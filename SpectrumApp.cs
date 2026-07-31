@@ -62,6 +62,10 @@ namespace SpectrumApp
 
         static string FindFfmpeg()
         {
+            // 优先从程序所在目录查找（便携打包支持）
+            string local = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ffmpeg.exe");
+            if (File.Exists(local)) return local;
+
             string[] paths = {
                 @"C:\ffmpeg\ffmpeg-8.0-full_build\bin\ffmpeg.exe",
                 @"C:\ffmpeg\bin\ffmpeg.exe",
