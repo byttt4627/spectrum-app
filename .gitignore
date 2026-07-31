@@ -1,0 +1,16 @@
+# 编译产物
+频谱图工具.exe
+*.exe
+
+# 崩溃日志
+crash.log
+
+# VS / Rider
+.vs/
+.idea/
+bin/
+obj/
+
+# 临时文件
+*.tmp
+*.temp

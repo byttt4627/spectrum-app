@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>音频频谱图工具</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei", sans-serif;
+    background: #1a1a2e; color: #e0e0e0;
+    min-height: 100vh; display: flex;
+    flex-direction: column; align-items: center;
+    padding: 20px 20px 30px;
+    user-select: none;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; color: #7eb8f7; }
+  .subtitle { font-size: 12px; color: #666; margin-bottom: 16px; }
+
+  /* ── 顶部工具栏 ─────────────────────────────── */
+  .toolbar {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; max-width: 960px;
+    margin-bottom: 12px;
+  }
+  .drop-zone {
+    flex: 1; border: 2px dashed #3a5a8a; border-radius: 10px;
+    padding: 20px 30px; text-align: center;
+    transition: border-color 0.2s, background 0.2s;
+    background: #16213e; cursor: default;
+  }
+  .drop-zone.drag-over { border-color: #7eb8f7; background: #1a2a4a; }
+  .drop-zone input { display: none; }
+  .drop-text { font-size: 14px; color: #aaa; }
+  .drop-hint { font-size: 11px; color: #555; margin-top: 4px; }
+
+  /* ── 控制面板 ───────────────────────────────── */
+  .controls {
+    display: flex; gap: 12px; flex-wrap: wrap;
+    align-items: flex-start; justify-content: center;
+    width: 100%; max-width: 960px;
+    background: #131a2e; border-radius: 10px; padding: 14px;
+    margin-bottom: 14px;
+  }
+  .control-group { display: flex; flex-direction: column; gap: 4px; }
+  .control-group label { font-size: 11px; color: #aaa; }
+  select, input[type=range] {
+    background: #16213e; border: 1px solid #3a5a8a;
+    color: #e0e0e0; border-radius: 6px;
+    padding: 4px 8px; font-size: 12px;
+  }
+  .range-row { display: flex; align-items: center; gap: 6px; }
+  .range-val { font-size: 11px; color: #7eb8f7; width: 34px; }
+  .divider { width: 1px; background: #2a3a5a; align-self: stretch; margin: 0 2px; }
+
+  /* ── 按钮 ──────────────────────────────────── */
+  .btn {
+    padding: 7px 16px; border: none; border-radius: 8px;
+    cursor: pointer; font-size: 13px; font-family: inherit;
+    transition: opacity 0.15s, transform 0.1s;
+    white-space: nowrap;
+  }
+  .btn:active:not(:disabled) { transform: scale(0.97); }
+  .btn:hover:not(:disabled) { opacity: 0.82; }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+  .btn-open     { background: #3a7bd5; color: white; padding: 10px 20px; font-size: 14px; }
+  .btn-success  { background: #2e8b57; color: white; }
+  .btn-secondary{ background: #333d55; color: #ddd; }
+  .btn-sm       { padding: 4px 10px; font-size: 12px; }
+
+  #status { font-size: 12px; color: #f0a500; min-height: 18px; margin-bottom: 8px; }
+
+  /* ── 频谱图区域 ─────────────────────────────── */
+  .viewer { width: 100%; max-width: 960px; display: none; flex-direction: column; }
+
+  .canvas-wrap {
+    background: #0d0d1a; border-radius: 10px 10px 0 0;
+    overflow: hidden; position: relative; cursor: crosshair;
+  }
+  #specCanvas { width: 100%; display: block; image-rendering: pixelated; }
+
+  .rendering-mask {
+    display: none; position: absolute; inset: 0;
+    background: rgba(13,13,26,0.7);
+    align-items: center; justify-content: center;
+    font-size: 13px; color: #7eb8f7;
+    border-radius: 10px 10px 0 0; flex-direction: column; gap: 10px;
+  }
+  .rendering-mask.active { display: flex; }
+  .progress-bar { width: 200px; height: 4px; background: #1e2d4a; border-radius: 2px; }
+  .progress-fill { height: 100%; background: #3a7bd5; border-radius: 2px; transition: width 0.1s; }
+
+  /* ── 缩放工具栏 ─────────────────────────────── */
+  .zoom-bar {
+    display: flex; align-items: center; gap: 8px;
+    background: #111827; padding: 5px 10px;
+    border-left: 1px solid #1e2d4a; border-right: 1px solid #1e2d4a;
+  }
+  .zoom-level { font-size: 12px; color: #7eb8f7; min-width: 32px; text-align: center; }
+  .zoom-hint  { font-size: 11px; color: #555; margin-left: auto; }
+  .time-range { font-size: 11px; color: #888; }
+
+  /* ── 滚动条 ─────────────────────────────────── */
+  .scrollbar-wrap {
+    background: #0d0d1a; border-radius: 0 0 10px 10px;
+    padding: 5px 8px; border-top: 1px solid #1a2535;
+  }
+  .scrollbar-track {
+    position: relative; height: 9px;
+    background: #1e2d4a; border-radius: 5px; cursor: pointer;
+  }
+  .scrollbar-thumb {
+    position: absolute; top: 0; height: 100%;
+    background: #3a7bd5; border-radius: 5px;
+    cursor: grab; min-width: 16px; transition: background 0.15s;
+  }
+  .scrollbar-thumb:hover, .scrollbar-thumb.dragging { background: #5a9bf5; cursor: grabbing; }
+
+  /* ── 色标 & 播放器 ──────────────────────────── */
+  .colorbar-wrap {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 8px; width: 100%; max-width: 960px;
+  }
+  .colorbar-label { font-size: 11px; color: #666; }
+  #colorbar { height: 14px; flex: 1; border-radius: 3px; }
+
+  .audio-player { width: 100%; max-width: 960px; margin-top: 12px; display: none; }
+  audio { width: 100%; height: 36px; }
+
+  .info-bar {
+    width: 100%; max-width: 960px;
+    display: none; gap: 16px; flex-wrap: wrap;
+    margin-top: 8px; font-size: 11px; color: #666;
+  }
+  .info-bar span { color: #7eb8f7; }
+</style>
+</head>
+<body>
+
+<h1>🎵 音频频谱图工具</h1>
+<p class="subtitle">桌面版 · 支持 MP3 / WAV / OGG / FLAC / AAC / OPUS 等格式</p>
+
+<!-- 顶部：打开按钮 + 拖放区 -->
+<div class="toolbar">
+  <button class="btn btn-open" id="openBtn">📂 打开文件</button>
+  <div class="drop-zone" id="dropZone">
+    <input type="file" id="fileInput" accept="audio/*">
+    <div class="drop-text">或将音频文件拖拽到此处</div>
+    <div class="drop-hint" id="dropHint">支持 MP3 / WAV / OGG / FLAC / M4A / AAC / OPUS</div>
+  </div>
+</div>
+
+<!-- 参数控制 -->
+<div class="controls">
+  <div class="control-group">
+    <label>色彩方案</label>
+    <select id="colormap">
+      <option value="viridis">Viridis（蓝绿黄）</option>
+      <option value="magma">Magma（黑紫橙）</option>
+      <option value="inferno">Inferno（黑红黄）</option>
+      <option value="plasma">Plasma（紫橙黄）</option>
+      <option value="hot">Hot（黑红白）</option>
+      <option value="cool">Cool（蓝绿）</option>
+      <option value="ocean">Ocean（深海蓝）</option>
+      <option value="grayscale">灰度</option>
+    </select>
+  </div>
+  <div class="divider"></div>
+  <div class="control-group">
+    <label>亮度 <span id="brightnessVal" style="color:#7eb8f7">1.0</span></label>
+    <input type="range" id="brightness" min="0.3" max="3.0" value="1.0" step="0.1" style="width:90px">
+  </div>
+  <div class="control-group">
+    <label>Gamma <span id="gammaVal" style="color:#7eb8f7">1.0</span></label>
+    <input type="range" id="gamma" min="0.3" max="3.0" value="1.0" step="0.1" style="width:90px">
+  </div>
+  <div class="divider"></div>
+  <div class="control-group">
+    <label>FFT 窗口</label>
+    <select id="fftSize">
+      <option value="1024">1024（快速）</option>
+      <option value="2048" selected>2048（均衡）</option>
+      <option value="4096">4096（精细）</option>
+      <option value="8192">8192（超精细）</option>
+    </select>
+  </div>
+  <div class="control-group">
+    <label>最大频率</label>
+    <select id="maxFreq">
+      <option value="8000">8000 Hz</option>
+      <option value="12000">12000 Hz</option>
+      <option value="16000">16000 Hz</option>
+      <option value="22050" selected>全频</option>
+    </select>
+  </div>
+  <div class="control-group">
+    <label>频率刻度</label>
+    <select id="freqScale">
+      <option value="linear">线性</option>
+      <option value="log" selected>对数</option>
+    </select>
+  </div>
+  <div class="control-group">
+    <label>动态范围 <span class="range-val" id="dynRangeVal">80</span> dB</label>
+    <input type="range" id="dynRange" min="40" max="120" value="80" step="10" style="width:90px">
+  </div>
+  <div class="divider"></div>
+  <div class="control-group" style="padding-top:16px;">
+    <button class="btn btn-success" id="saveBtn" disabled>💾 保存当前视图</button>
+  </div>
+</div>
+
+<div id="status"></div>
+
+<!-- 频谱图 -->
+<div class="viewer" id="viewer">
+  <div class="canvas-wrap" id="canvasWrap">
+    <canvas id="specCanvas"></canvas>
+    <div class="rendering-mask" id="renderingMask">
+      <span id="maskText">正在计算频谱…</span>
+      <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+    </div>
+  </div>
+  <div class="zoom-bar">
+    <button class="btn btn-secondary btn-sm" id="zoomOut">－</button>
+    <span class="zoom-level" id="zoomLabel">1×</span>
+    <button class="btn btn-secondary btn-sm" id="zoomIn">＋</button>
+    <button class="btn btn-secondary btn-sm" id="zoomReset">全局</button>
+    <span class="time-range" id="timeRange"></span>
+    <span class="zoom-hint">滚轮缩放 · 拖动平移</span>
+  </div>
+  <div class="scrollbar-wrap">
+    <div class="scrollbar-track" id="scrollTrack">
+      <div class="scrollbar-thumb" id="scrollThumb"></div>
+    </div>
+  </div>
+</div>
+
+<div class="colorbar-wrap" id="colorbarWrap" style="display:none">
+  <span class="colorbar-label">弱</span>
+  <canvas id="colorbar"></canvas>
+  <span class="colorbar-label">强</span>
+</div>
+
+<div class="audio-player" id="audioPlayer">
+  <audio id="audioEl" controls></audio>
+</div>
+
+<div class="info-bar" id="infoBar">
+  <div>文件：<span id="infoName">-</span></div>
+  <div>时长：<span id="infoDuration">-</span></div>
+  <div>采样率：<span id="infoSR">-</span></div>
+  <div>声道：<span id="infoCh">-</span></div>
+  <div>大小：<span id="infoSize">-</span></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  颜色映射
+// ═══════════════════════════════════════════════════════
+const colormaps = {
+  viridis:  t => interp([[68,1,84],[72,40,120],[62,83,160],[49,120,188],[38,155,205],[53,183,201],[91,207,178],[140,225,150],[190,236,121],[242,240,97],[253,231,37]], t),
+  magma:    t => interp([[0,0,4],[28,16,68],[79,18,123],[129,37,129],[181,54,122],[229,80,100],[251,135,97],[254,194,135],[252,253,191]], t),
+  inferno:  t => interp([[0,0,4],[40,11,84],[101,21,110],[159,42,99],[212,72,66],[245,125,21],[252,193,44],[252,255,164]], t),
+  plasma:   t => interp([[13,8,135],[84,2,163],[139,10,165],[185,50,137],[219,92,104],[244,136,73],[254,188,43],[240,249,33]], t),
+  hot: t => {
+    if (t < 0.333) return [Math.round(t*3*255), 0, 0]
+    if (t < 0.667) return [255, Math.round((t-0.333)*3*255), 0]
+    return [255, 255, Math.round((t-0.667)*3*255)]
+  },
+  cool:     t => [Math.round(t*255), Math.round((1-t)*255), 255],
+  ocean:    t => interp([[0,10,30],[0,30,80],[0,80,150],[0,130,180],[20,180,200],[100,220,220],[200,250,240]], t),
+  grayscale:t => { const v = Math.round(t*255); return [v,v,v] }
+}
+function interp(stops, t) {
+  const n = stops.length - 1
+  const idx = Math.min(Math.floor(t * n), n - 1)
+  const f = t * n - idx
+  const a = stops[idx], b = stops[idx+1]
+  return [Math.round(a[0]+(b[0]-a[0])*f), Math.round(a[1]+(b[1]-a[1])*f), Math.round(a[2]+(b[2]-a[2])*f)]
+}
+function currentCm() { return colormaps[document.getElementById('colormap').value] }
+
+// ═══════════════════════════════════════════════════════
+//  LUT（颜色查找表）— 将亮度/Gamma/颜色映射预计算为 256 个 RGBA uint32
+//  Canvas ImageData 字节顺序: [R,G,B,A]，Uint32 小端: A<<24|B<<16|G<<8|R
+// ═══════════════════════════════════════════════════════
+let lut = new Uint32Array(256)
+
+function rebuildLUT() {
+  const cm         = currentCm()
+  const brightness = parseFloat(document.getElementById('brightness').value)
+  const gamma      = parseFloat(document.getElementById('gamma').value)
+  for (let i = 0; i < 256; i++) {
+    let t = i / 255
+    t = Math.min(1, Math.max(0, Math.pow(t, gamma) * brightness))
+    const [r, g, b] = cm(t)
+    lut[i] = (255 << 24) | (b << 16) | (g << 8) | r
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  全局状态
+// ═══════════════════════════════════════════════════════
+let audioBuffer  = null
+let fileName     = ''
+
+let specData     = null   // Float32Array [frames × bins]
+let specFrames   = 0
+let specBins     = 0
+let specMaxPow   = 0
+let specSr       = 0
+let specMaxFreq  = 0
+let specDuration = 0
+
+let viewZoom  = 1
+let viewStart = 0
+
+// ═══════════════════════════════════════════════════════
+//  Web Worker 管理
+// ═══════════════════════════════════════════════════════
+let stftWorker = null
+
+function startWorker(rawData, fftSize, maxFreqSel, sr) {
+  if (stftWorker) stftWorker.terminate()
+  stftWorker = new Worker('stft.worker.js')
+
+  const hop     = fftSize >> 2
+  const maxBin  = Math.round(maxFreqSel / (sr / fftSize))
+  const useBins = Math.min(maxBin, fftSize >> 1)
+  const numFrames = Math.max(1, Math.floor((rawData.length - fftSize) / hop) + 1)
+
+  stftWorker.onmessage = (e) => {
+    const { type, pct, specData: sd, maxPow } = e.data
+    if (type === 'progress') {
+      document.getElementById('progressFill').style.width = pct + '%'
+      statusEl.textContent = `计算中 ${pct}%…`
+    } else if (type === 'done') {
+      specData    = sd
+      specMaxPow  = maxPow
+      specFrames  = numFrames
+      specBins    = useBins
+      specMaxFreq = maxFreqSel
+      specSr      = sr
+      finishRender(numFrames, useBins)
+    }
+  }
+  stftWorker.onerror = (e) => {
+    statusEl.textContent = '计算出错：' + e.message
+    document.getElementById('renderingMask').classList.remove('active')
+  }
+
+  // Transfer a COPY of raw data (protect audioBuffer from transfer)
+  const copy = rawData.slice(0)
+  stftWorker.postMessage({ rawData: copy, fftSize, hop, useBins, numFrames }, [copy.buffer])
+}
+
+function finishRender(numFrames, useBins) {
+  viewZoom = 1; viewStart = 0
+  canvas.width  = Math.min(numFrames, 1800)
+  canvas.height = useBins
+
+  rebuildLUT()
+  renderView()
+
+  viewer.style.display = 'flex'
+  drawColorbar()
+  document.getElementById('colorbarWrap').style.display = 'flex'
+  document.getElementById('renderingMask').classList.remove('active')
+  document.getElementById('saveBtn').disabled = false
+  statusEl.textContent = `完成 · ${numFrames} 帧 · ${specDuration.toFixed(2)}s · 滚轮缩放 · 拖动平移`
+}
+
+// ═══════════════════════════════════════════════════════
+//  RAF 调度 — 确保每屏幕帧最多渲染一次（消除拖动卡顿）
+// ═══════════════════════════════════════════════════════
+let rafPending = false
+
+function scheduleRender() {
+  if (!specData || rafPending) return
+  rafPending = true
+  requestAnimationFrame(() => { rafPending = false; renderView() })
+}
+
+// ═══════════════════════════════════════════════════════
+//  渲染（LUT 查表 + Uint32 批写，比逐通道写快 ~4×）
+// ═══════════════════════════════════════════════════════
+function renderView() {
+  if (!specData) return
+  const W = canvas.width, H = canvas.height
+  const visFrames = specFrames / viewZoom
+  const startF    = Math.max(0, viewStart)
+  const dynRange  = parseInt(document.getElementById('dynRange').value)
+  const dbFloor   = specMaxPow - dynRange
+  const freqScale = document.getElementById('freqScale').value
+
+  const imgData = ctx.createImageData(W, H)
+  const buf32   = new Uint32Array(imgData.data.buffer)  // 4 bytes 一次写
+
+  // 对数映射：预计算每行 py → bin 索引（只算一次）
+  let binMap = null
+  if (freqScale === 'log') {
+    binMap = new Int32Array(H)
+    const logMin = 0                                 // log10(1)=0
+    const logMax = Math.log10(specMaxFreq)
+    const scale  = (logMax - logMin) / (H - 1)
+    for (let py = 0; py < H; py++) {
+      const frac = (H - 1 - py) / (H - 1)
+      const freq = Math.pow(10, logMin + frac * (logMax - logMin))
+      binMap[py] = Math.max(0, Math.min(specBins - 1, (freq / specMaxFreq * (specBins - 1) + 0.5) | 0))
+    }
+  }
+
+  for (let x = 0; x < W; x++) {
+    const frame = Math.min((startF + x / W * visFrames) | 0, specFrames - 1)
+    const base  = frame * specBins
+    for (let py = 0; py < H; py++) {
+      const b    = binMap ? binMap[py] : (H - 1 - py)
+      const p    = specData[base + b]
+      const rawT = (p - dbFloor) / dynRange
+      const ti   = rawT <= 0 ? 0 : rawT >= 1 ? 255 : (rawT * 255 + 0.5) | 0
+      buf32[py * W + x] = lut[ti]
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0)
+  drawAxisLabels(W, H, startF, visFrames, freqScale)
+  updateScrollbar()
+  updateZoomLabel()
+}
+
+function drawAxisLabels(W, H, startF, visFrames, freqScale) {
+  ctx.fillStyle = 'rgba(0,0,0,0.45)'
+  ctx.fillRect(W - 48, 0, 48, H)
+  ctx.fillStyle = '#bbb'; ctx.font = '10px Arial'; ctx.textAlign = 'right'
+
+  const ticks = [20,50,100,200,500,1000,2000,4000,6000,8000,10000,12000,16000,20000]
+  ticks.filter(f => f <= specMaxFreq).forEach(f => {
+    let y
+    if (freqScale === 'log') {
+      const frac = Math.log10(Math.max(1, f)) / Math.log10(specMaxFreq)
+      y = Math.round((H - 1) * (1 - frac))
+    } else {
+      y = H - 1 - Math.round(f / specMaxFreq * (specBins - 1))
+    }
+    if (y < 0 || y >= H) return
+    ctx.fillStyle = 'rgba(255,255,255,0.1)'
+    ctx.fillRect(0, y, W - 50, 1)
+    ctx.fillStyle = '#bbb'
+    ctx.fillText(f >= 1000 ? (f/1000)+'k' : f+'', W - 3, y + 4)
+  })
+
+  // 时间刻度
+  const t0 = startF / specFrames * specDuration
+  const t1 = (startF + visFrames) / specFrames * specDuration
+  const span = t1 - t0
+  const step = niceStep(span / 7)
+  ctx.fillStyle = '#aaa'; ctx.font = '10px Arial'; ctx.textAlign = 'center'
+  for (let t = Math.ceil(t0 / step) * step; t <= t1 + 1e-9; t += step) {
+    const x = Math.round((t - t0) / span * (W - 50))
+    if (x < 0 || x > W - 50) continue
+    ctx.fillStyle = 'rgba(255,255,255,0.1)'
+    ctx.fillRect(x, 0, 1, H)
+    ctx.fillStyle = '#aaa'
+    ctx.fillText(t.toFixed(span < 2 ? 2 : 1) + 's', x, H - 4)
+  }
+  document.getElementById('timeRange').textContent = `${t0.toFixed(2)}s — ${t1.toFixed(2)}s`
+}
+
+function niceStep(a) {
+  const e = Math.pow(10, Math.floor(Math.log10(a)))
+  for (const m of [1,2,5,10]) if (m*e >= a) return m*e
+  return e*10
+}
+
+// ═══════════════════════════════════════════════════════
+//  DOM 引用
+// ═══════════════════════════════════════════════════════
+const dropZone    = document.getElementById('dropZone')
+const fileInput   = document.getElementById('fileInput')
+const saveBtn     = document.getElementById('saveBtn')
+const statusEl    = document.getElementById('status')
+const canvas      = document.getElementById('specCanvas')
+const ctx         = canvas.getContext('2d')
+const colorbarCv  = document.getElementById('colorbar')
+const audioEl     = document.getElementById('audioEl')
+const viewer      = document.getElementById('viewer')
+const scrollThumb = document.getElementById('scrollThumb')
+const scrollTrack = document.getElementById('scrollTrack')
+const zoomLabel   = document.getElementById('zoomLabel')
+const timeRange   = document.getElementById('timeRange')
+
+// ═══════════════════════════════════════════════════════
+//  文件打开
+// ═══════════════════════════════════════════════════════
+document.getElementById('openBtn').addEventListener('click', async () => {
+  const filePath = await window.electronAPI.openFile()
+  if (!filePath) return
+  const ab   = window.electronAPI.readFile(filePath)
+  const name = window.electronAPI.getFileName(filePath)
+  const size = window.electronAPI.getFileSize(filePath)
+  loadFromBuffer(ab, name, size)
+})
+
+// 拖拽
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('drag-over') })
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'))
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over')
+  if (e.dataTransfer.files[0]) loadFromFile(e.dataTransfer.files[0])
+})
+
+// 备用 input（拖文件到 input 也可以）
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) loadFromFile(fileInput.files[0]) })
+
+async function loadFromFile(file) {
+  const ab = await file.arrayBuffer()
+  loadFromBuffer(ab, file.name, file.size)
+}
+
+async function loadFromBuffer(arrayBuffer, name, size) {
+  fileName = name
+  statusEl.textContent = '正在解码音频…'
+  saveBtn.disabled = true
+  document.getElementById('renderingMask').classList.add('active')
+  document.getElementById('progressFill').style.width = '0%'
+
+  // 更新信息栏
+  document.getElementById('infoName').textContent = name
+  document.getElementById('infoSize').textContent = (size / 1024 / 1024).toFixed(2) + ' MB'
+  window.electronAPI.setTitle('音频频谱图工具 — ' + name)
+
+  // 播放器
+  const blob = new Blob([arrayBuffer.slice(0)])
+  audioEl.src = URL.createObjectURL(blob)
+  document.getElementById('audioPlayer').style.display = 'block'
+
+  const ac = new AudioContext()
+  try {
+    audioBuffer = await ac.decodeAudioData(arrayBuffer)
+    specDuration = audioBuffer.duration
+    document.getElementById('infoDuration').textContent = audioBuffer.duration.toFixed(2) + ' 秒'
+    document.getElementById('infoSR').textContent = audioBuffer.sampleRate + ' Hz'
+    document.getElementById('infoCh').textContent = audioBuffer.numberOfChannels === 1 ? '单声道' : '立体声'
+    document.getElementById('infoBar').style.display = 'flex'
+    document.getElementById('dropHint').textContent = '已加载：' + name
+    runSTFT()
+  } catch(e) {
+    statusEl.textContent = '解码失败：' + e.message
+    document.getElementById('renderingMask').classList.remove('active')
+  }
+}
+
+function runSTFT() {
+  const fftSize    = parseInt(document.getElementById('fftSize').value)
+  const maxFreqSel = parseInt(document.getElementById('maxFreq').value)
+  const sr         = audioBuffer.sampleRate
+  const rawData    = audioBuffer.getChannelData(0)
+
+  document.getElementById('renderingMask').classList.add('active')
+  statusEl.textContent = '正在计算频谱…'
+  startWorker(rawData, fftSize, maxFreqSel, sr)
+}
+
+// ═══════════════════════════════════════════════════════
+//  参数控件监听
+// ═══════════════════════════════════════════════════════
+// 只需重绘（重建 LUT 后 RAF 调度）
+['colormap','freqScale'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => { rebuildLUT(); scheduleRender() })
+})
+
+document.getElementById('brightness').addEventListener('input', function() {
+  document.getElementById('brightnessVal').textContent = parseFloat(this.value).toFixed(1)
+  rebuildLUT(); scheduleRender()
+})
+document.getElementById('gamma').addEventListener('input', function() {
+  document.getElementById('gammaVal').textContent = parseFloat(this.value).toFixed(1)
+  rebuildLUT(); scheduleRender()
+})
+document.getElementById('dynRange').addEventListener('input', function() {
+  document.getElementById('dynRangeVal').textContent = this.value
+  scheduleRender()   // dynRange 不影响 LUT，只影响 dbFloor
+})
+
+// 需要重算 STFT（防抖 400ms）
+let recomputeTimer = null
+function scheduleRecompute() {
+  if (!audioBuffer) return
+  clearTimeout(recomputeTimer)
+  recomputeTimer = setTimeout(runSTFT, 400)
+}
+document.getElementById('fftSize').addEventListener('change', scheduleRecompute)
+document.getElementById('maxFreq').addEventListener('change', scheduleRecompute)
+
+// ═══════════════════════════════════════════════════════
+//  滚动条
+// ═══════════════════════════════════════════════════════
+function updateScrollbar() {
+  const trackW = scrollTrack.clientWidth
+  const ratio  = 1 / viewZoom
+  const thumbW = Math.max(16, trackW * ratio)
+  const maxL   = trackW - thumbW
+  const maxS   = specFrames - specFrames / viewZoom
+  scrollThumb.style.width = thumbW + 'px'
+  scrollThumb.style.left  = (maxS > 0 ? viewStart / maxS * maxL : 0) + 'px'
+}
+function updateZoomLabel() {
+  zoomLabel.textContent = viewZoom + '×'
+}
+
+let thumbDrag = false, thumbDragX = 0, thumbDragStart = 0
+scrollThumb.addEventListener('mousedown', e => {
+  thumbDrag = true; thumbDragX = e.clientX; thumbDragStart = viewStart
+  scrollThumb.classList.add('dragging'); e.stopPropagation(); e.preventDefault()
+})
+window.addEventListener('mousemove', e => {
+  if (thumbDrag) {
+    const trackW = scrollTrack.clientWidth
+    const thumbW = parseFloat(scrollThumb.style.width)
+    const maxS   = specFrames - specFrames / viewZoom
+    viewStart = Math.max(0, Math.min(maxS, thumbDragStart + (e.clientX - thumbDragX) / (trackW - thumbW) * maxS))
+    scheduleRender()
+  }
+  if (canvasDrag) {
+    const dx = e.clientX - dragX
+    const visFrames = specFrames / viewZoom
+    const maxS = specFrames - visFrames
+    viewStart = Math.max(0, Math.min(maxS, dragStart - dx * visFrames / canvas.getBoundingClientRect().width))
+    scheduleRender()
+  }
+})
+window.addEventListener('mouseup', () => {
+  if (thumbDrag) { thumbDrag = false; scrollThumb.classList.remove('dragging') }
+  if (canvasDrag) { canvasDrag = false; canvas.style.cursor = 'crosshair' }
+})
+scrollTrack.addEventListener('click', e => {
+  if (e.target === scrollThumb) return
+  const frac = (e.clientX - scrollTrack.getBoundingClientRect().left) / scrollTrack.clientWidth
+  const maxS = specFrames - specFrames / viewZoom
+  viewStart = Math.max(0, Math.min(maxS, frac * specFrames - (specFrames / viewZoom) / 2))
+  scheduleRender()
+})
+
+// ═══════════════════════════════════════════════════════
+//  滚轮缩放 & 拖动平移
+// ═══════════════════════════════════════════════════════
+canvas.addEventListener('wheel', e => {
+  if (!specData) return
+  e.preventDefault()
+  const rect  = canvas.getBoundingClientRect()
+  const fracX = (e.clientX - rect.left) / rect.width
+  const vis   = specFrames / viewZoom
+  const anchor = viewStart + fracX * vis
+  const newZoom = Math.max(1, Math.min(64, viewZoom * (e.deltaY < 0 ? 2 : 0.5)))
+  const newVis  = specFrames / newZoom
+  viewZoom  = newZoom
+  viewStart = Math.max(0, Math.min(specFrames - newVis, anchor - fracX * newVis))
+  scheduleRender()
+}, { passive: false })
+
+let canvasDrag = false, dragX = 0, dragStart = 0
+canvas.addEventListener('mousedown', e => {
+  if (!specData) return
+  canvasDrag = true; dragX = e.clientX; dragStart = viewStart
+  canvas.style.cursor = 'grabbing'
+})
+
+document.getElementById('zoomIn').addEventListener('click',    () => zoomAt(0.5, 2))
+document.getElementById('zoomOut').addEventListener('click',   () => zoomAt(0.5, 0.5))
+document.getElementById('zoomReset').addEventListener('click', () => { viewZoom=1; viewStart=0; scheduleRender() })
+function zoomAt(anchor, factor) {
+  if (!specData) return
+  const vis    = specFrames / viewZoom
+  const pivotF = viewStart + anchor * vis
+  const newZoom = Math.max(1, Math.min(64, viewZoom * factor))
+  const newVis  = specFrames / newZoom
+  viewZoom  = newZoom
+  viewStart = Math.max(0, Math.min(specFrames - newVis, pivotF - anchor * newVis))
+  scheduleRender()
+}
+
+// ═══════════════════════════════════════════════════════
+//  色标
+// ═══════════════════════════════════════════════════════
+function drawColorbar() {
+  const cm   = currentCm()
+  const b    = parseFloat(document.getElementById('brightness').value)
+  const g    = parseFloat(document.getElementById('gamma').value)
+  colorbarCv.width = 400; colorbarCv.height = 14
+  const cc  = colorbarCv.getContext('2d')
+  const img = cc.createImageData(400, 14)
+  const b32 = new Uint32Array(img.data.buffer)
+  for (let x = 0; x < 400; x++) {
+    let t = Math.min(1, Math.max(0, Math.pow(x/399, g) * b))
+    const [r,gr,bl] = cm(t)
+    const v = (255<<24)|(bl<<16)|(gr<<8)|r
+    for (let y = 0; y < 14; y++) b32[y*400+x] = v
+  }
+  cc.putImageData(img, 0, 0)
+}
+
+// ═══════════════════════════════════════════════════════
+//  保存
+// ═══════════════════════════════════════════════════════
+saveBtn.addEventListener('click', () => {
+  const link = document.createElement('a')
+  link.download = fileName.replace(/\.[^.]+$/, '') + `_spec_${viewZoom}x.png`
+  link.href = canvas.toDataURL('image/png')
+  link.click()
+})
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+console.log('process.type:', process.type)
+console.log('electron ver:', process.versions.electron)
+const e = require('electron')
+console.log('typeof electron:', typeof e)
+if (typeof e === 'object') console.log('keys:', Object.keys(e).slice(0,8))
+else console.log('value:', String(e).slice(0,80))
+process.exit(0)
