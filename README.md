@@ -4,7 +4,7 @@ A Windows desktop tool for audio spectrogram visualization, image-to-audio synth
 
 ## Quick Start
 
-1. **[Download `频谱图工具.exe`](频谱图工具.exe)** — double-click to run, no installation needed
+1. **[Download `SpectrumApp.exe`](https://github.com/byttt4627/spectrum-app/releases/latest)** — open the latest release, grab `SpectrumApp.exe`, double-click to run. No installation needed. This link always points at the newest version.
 2. **Install ffmpeg** (required for MP3, FLAC, OGG, etc.) — [Download ffmpeg](https://ffmpeg.org/download.html), place `ffmpeg.exe` in `C:\ffmpeg\bin\` or add it to your `PATH`
 3. WAV files work without ffmpeg
 
